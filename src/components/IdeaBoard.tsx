@@ -3,6 +3,8 @@ import { Plus, Lightbulb } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import IdeaCard from "./IdeaCard";
+import GamificationStats from "./GamificationStats";
+import ThemeToggle from "./ThemeToggle";
 import { toast } from "@/hooks/use-toast";
 
 interface Idea {
@@ -11,9 +13,20 @@ interface Idea {
   timestamp: number;
 }
 
+interface GamificationData {
+  points: number;
+  streak: number;
+  lastIdeaDate: string | null;
+}
+
 const IdeaBoard = () => {
   const [ideas, setIdeas] = useState<Idea[]>([]);
   const [inputValue, setInputValue] = useState("");
+  const [gamification, setGamification] = useState<GamificationData>({
+    points: 0,
+    streak: 0,
+    lastIdeaDate: null,
+  });
 
   // Load ideas from localStorage on mount
   useEffect(() => {
@@ -25,12 +38,52 @@ const IdeaBoard = () => {
         console.error("Failed to parse stored ideas:", error);
       }
     }
+
+    const storedGamification = localStorage.getItem("gamification");
+    if (storedGamification) {
+      try {
+        setGamification(JSON.parse(storedGamification));
+      } catch (error) {
+        console.error("Failed to parse stored gamification:", error);
+      }
+    }
   }, []);
 
   // Save ideas to localStorage whenever they change
   useEffect(() => {
     localStorage.setItem("ideas", JSON.stringify(ideas));
   }, [ideas]);
+
+  // Save gamification data to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem("gamification", JSON.stringify(gamification));
+  }, [gamification]);
+
+  const calculateLevel = (points: number) => {
+    return Math.floor(points / 100) + 1;
+  };
+
+  const updateStreak = () => {
+    const today = new Date().toDateString();
+    const lastDate = gamification.lastIdeaDate;
+
+    if (!lastDate) {
+      return { streak: 1, lastIdeaDate: today };
+    }
+
+    const lastDateObj = new Date(lastDate);
+    const todayObj = new Date(today);
+    const diffTime = todayObj.getTime() - lastDateObj.getTime();
+    const diffDays = diffTime / (1000 * 3600 * 24);
+
+    if (diffDays === 0) {
+      return { streak: gamification.streak, lastIdeaDate: today };
+    } else if (diffDays === 1) {
+      return { streak: gamification.streak + 1, lastIdeaDate: today };
+    } else {
+      return { streak: 1, lastIdeaDate: today };
+    }
+  };
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -62,10 +115,29 @@ const IdeaBoard = () => {
 
     setIdeas([newIdea, ...ideas]);
     setInputValue("");
+
+    // Update gamification
+    const streakData = updateStreak();
+    const newPoints = gamification.points + 10;
+    const newLevel = calculateLevel(newPoints);
+    const oldLevel = calculateLevel(gamification.points);
+
+    setGamification({
+      points: newPoints,
+      streak: streakData.streak,
+      lastIdeaDate: streakData.lastIdeaDate,
+    });
+
+    let toastMessage = "Your brilliant thought has been saved. +10 points!";
+    if (newLevel > oldLevel) {
+      toastMessage = `Level up! You're now level ${newLevel}! 🎉`;
+    } else if (streakData.streak > gamification.streak) {
+      toastMessage = `${streakData.streak} day streak! Keep it going! 🔥`;
+    }
     
     toast({
       title: "Idea added! 💡",
-      description: "Your brilliant thought has been saved.",
+      description: toastMessage,
     });
   };
 
@@ -79,6 +151,7 @@ const IdeaBoard = () => {
 
   return (
     <div className="min-h-screen bg-gradient-background py-12 px-4 sm:px-6 lg:px-8">
+      <ThemeToggle />
       <div className="max-w-4xl mx-auto">
         {/* Header */}
         <div className="text-center mb-12 animate-scale-in">
@@ -92,6 +165,13 @@ const IdeaBoard = () => {
             Capture your creative sparks and watch your brilliance grow. Every great project starts with a simple idea.
           </p>
         </div>
+
+        {/* Gamification Stats */}
+        <GamificationStats
+          points={gamification.points}
+          streak={gamification.streak}
+          level={calculateLevel(gamification.points)}
+        />
 
         {/* Input Form */}
         <form onSubmit={handleSubmit} className="mb-12 animate-scale-in">
