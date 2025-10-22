@@ -1,16 +1,18 @@
 import { useState, useEffect, FormEvent } from "react";
-import { Plus, Lightbulb } from "lucide-react";
+import { Plus, Lightbulb, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import IdeaCard from "./IdeaCard";
 import GamificationStats from "./GamificationStats";
 import ThemeToggle from "./ThemeToggle";
 import { toast } from "@/hooks/use-toast";
+import confetti from "canvas-confetti";
 
 interface Idea {
   id: string;
   text: string;
   timestamp: number;
+  category?: string;
 }
 
 interface GamificationData {
@@ -22,11 +24,24 @@ interface GamificationData {
 const IdeaBoard = () => {
   const [ideas, setIdeas] = useState<Idea[]>([]);
   const [inputValue, setInputValue] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [gamification, setGamification] = useState<GamificationData>({
     points: 0,
     streak: 0,
     lastIdeaDate: null,
   });
+
+  const categories = ["Work", "Personal", "Creative", "Learning"];
+
+  const triggerConfetti = () => {
+    confetti({
+      particleCount: 100,
+      spread: 70,
+      origin: { y: 0.6 },
+      colors: ["#22c55e", "#16a34a", "#15803d"],
+    });
+  };
 
   // Load ideas from localStorage on mount
   useEffect(() => {
@@ -111,6 +126,7 @@ const IdeaBoard = () => {
       id: Date.now().toString(),
       text: trimmedValue,
       timestamp: Date.now(),
+      category: selectedCategory !== "all" ? selectedCategory : undefined,
     };
 
     setIdeas([newIdea, ...ideas]);
@@ -131,6 +147,7 @@ const IdeaBoard = () => {
     let toastMessage = "Your brilliant thought has been saved. +10 points!";
     if (newLevel > oldLevel) {
       toastMessage = `Level up! You're now level ${newLevel}! 🎉`;
+      triggerConfetti();
     } else if (streakData.streak > gamification.streak) {
       toastMessage = `${streakData.streak} day streak! Keep it going! 🔥`;
     }
@@ -148,6 +165,22 @@ const IdeaBoard = () => {
       description: "The idea has been deleted.",
     });
   };
+
+  const handleEdit = (id: string, newText: string) => {
+    setIdeas(ideas.map((idea) => 
+      idea.id === id ? { ...idea, text: newText } : idea
+    ));
+    toast({
+      title: "Idea updated",
+      description: "Your idea has been successfully updated.",
+    });
+  };
+
+  const filteredIdeas = ideas.filter((idea) => {
+    const matchesSearch = idea.text.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesCategory = selectedCategory === "all" || idea.category === selectedCategory;
+    return matchesSearch && matchesCategory;
+  });
 
   return (
     <div className="min-h-screen bg-gradient-background py-12 px-4 sm:px-6 lg:px-8">
@@ -174,29 +207,68 @@ const IdeaBoard = () => {
         />
 
         {/* Input Form */}
-        <form onSubmit={handleSubmit} className="mb-12 animate-scale-in">
-          <div className="flex gap-3">
-            <Input
-              type="text"
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              placeholder="What's your next brilliant idea?"
-              className="flex-1 h-14 px-6 text-base shadow-card border-input focus-visible:ring-primary"
-              maxLength={500}
-            />
-            <Button
-              type="submit"
-              size="lg"
-              className="h-14 px-8 bg-gradient-primary hover:opacity-90 shadow-button transition-all duration-300 hover:scale-105"
-            >
-              <Plus className="h-5 w-5 mr-2" />
-              Add Idea
-            </Button>
+        <form onSubmit={handleSubmit} className="mb-8 animate-scale-in">
+          <div className="flex flex-col gap-4">
+            <div className="flex gap-3">
+              <Input
+                type="text"
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                placeholder="What's your next brilliant idea?"
+                className="flex-1 h-14 px-6 text-base shadow-card border-input focus-visible:ring-primary"
+                maxLength={500}
+              />
+              <Button
+                type="submit"
+                size="lg"
+                className="h-14 px-8 bg-gradient-primary hover:opacity-90 shadow-button transition-all duration-300 hover:scale-105"
+              >
+                <Plus className="h-5 w-5 mr-2" />
+                Add Idea
+              </Button>
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              <Button
+                type="button"
+                variant={selectedCategory === "all" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setSelectedCategory("all")}
+                className="transition-all duration-200"
+              >
+                All
+              </Button>
+              {categories.map((category) => (
+                <Button
+                  key={category}
+                  type="button"
+                  variant={selectedCategory === category ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setSelectedCategory(category)}
+                  className="transition-all duration-200"
+                >
+                  {category}
+                </Button>
+              ))}
+            </div>
           </div>
         </form>
 
+        {/* Search Bar */}
+        <div className="mb-8 animate-fade-in">
+          <div className="relative">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+            <Input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search your ideas..."
+              className="pl-12 h-12 shadow-card"
+            />
+          </div>
+        </div>
+
         {/* Ideas List */}
-        {ideas.length === 0 ? (
+        {filteredIdeas.length === 0 && ideas.length === 0 ? (
           <div className="text-center py-20 animate-fade-in">
             <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-secondary mb-6">
               <Lightbulb className="h-12 w-12 text-muted-foreground" />
@@ -208,6 +280,18 @@ const IdeaBoard = () => {
               Start adding your creative thoughts and build your collection of genius ideas!
             </p>
           </div>
+        ) : filteredIdeas.length === 0 ? (
+          <div className="text-center py-20 animate-fade-in">
+            <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-secondary mb-6">
+              <Search className="h-12 w-12 text-muted-foreground" />
+            </div>
+            <h3 className="text-2xl font-semibold text-foreground mb-3">
+              No ideas found
+            </h3>
+            <p className="text-muted-foreground max-w-md mx-auto">
+              Try adjusting your search or category filters to find what you're looking for.
+            </p>
+          </div>
         ) : (
           <div className="space-y-4">
             <div className="flex items-center justify-between mb-6">
@@ -215,15 +299,17 @@ const IdeaBoard = () => {
                 Your Ideas
               </h2>
               <span className="text-sm text-muted-foreground bg-secondary px-4 py-2 rounded-full">
-                {ideas.length} {ideas.length === 1 ? "idea" : "ideas"}
+                {filteredIdeas.length} {filteredIdeas.length === 1 ? "idea" : "ideas"}
               </span>
             </div>
-            {ideas.map((idea) => (
+            {filteredIdeas.map((idea) => (
               <IdeaCard
                 key={idea.id}
                 id={idea.id}
                 text={idea.text}
+                category={idea.category}
                 onDelete={handleDelete}
+                onEdit={handleEdit}
               />
             ))}
           </div>
