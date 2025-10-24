@@ -1,12 +1,15 @@
 import { useState, useEffect, FormEvent } from "react";
-import { Plus, Lightbulb, Search } from "lucide-react";
+import { Plus, Lightbulb, Search, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import IdeaCard from "./IdeaCard";
 import GamificationStats from "./GamificationStats";
 import ThemeToggle from "./ThemeToggle";
 import { toast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
+import { useNavigate } from "react-router-dom";
 import confetti from "canvas-confetti";
+import { Session } from "@supabase/supabase-js";
 
 interface Idea {
   id: string;
@@ -22,6 +25,8 @@ interface GamificationData {
 }
 
 const IdeaBoard = () => {
+  const navigate = useNavigate();
+  const [session, setSession] = useState<Session | null>(null);
   const [ideas, setIdeas] = useState<Idea[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -43,8 +48,26 @@ const IdeaBoard = () => {
     });
   };
 
-  // Load ideas from localStorage on mount
+  // Auth and data loading
   useEffect(() => {
+    // Set up auth state listener
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        setSession(session);
+        if (!session) {
+          navigate("/auth");
+        }
+      }
+    );
+
+    // Check for existing session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      if (!session) {
+        navigate("/auth");
+      }
+    });
+
     const storedIdeas = localStorage.getItem("ideas");
     if (storedIdeas) {
       try {
@@ -62,7 +85,9 @@ const IdeaBoard = () => {
         console.error("Failed to parse stored gamification:", error);
       }
     }
-  }, []);
+
+    return () => subscription.unsubscribe();
+  }, [navigate]);
 
   // Save ideas to localStorage whenever they change
   useEffect(() => {
@@ -182,12 +207,21 @@ const IdeaBoard = () => {
     return matchesSearch && matchesCategory;
   });
 
+  if (!session) {
+    return null;
+  }
+
   return (
     <div className="min-h-screen bg-gradient-background py-12 px-4 sm:px-6 lg:px-8">
-      <ThemeToggle />
       <div className="max-w-4xl mx-auto">
         {/* Header */}
         <div className="text-center mb-12 animate-scale-in">
+          <div className="absolute top-4 right-4 flex items-center gap-2">
+            <ThemeToggle />
+            <Button variant="ghost" size="icon" onClick={() => navigate("/profile")}>
+              <User className="w-5 h-5" />
+            </Button>
+          </div>
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-primary mb-6 shadow-button">
             <Lightbulb className="h-8 w-8 text-primary-foreground" />
           </div>
