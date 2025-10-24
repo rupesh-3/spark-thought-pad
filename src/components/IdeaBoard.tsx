@@ -36,6 +36,7 @@ const IdeaBoard = () => {
     streak: 0,
     lastIdeaDate: null,
   });
+  const [isLoading, setIsLoading] = useState(true);
 
   const categories = ["Work", "Personal", "Creative", "Learning"];
 
@@ -48,6 +49,70 @@ const IdeaBoard = () => {
     });
   };
 
+  // Load ideas from database
+  const loadIdeas = async (userId: string) => {
+    const { data, error } = await supabase
+      .from("ideas")
+      .select("*")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      if (import.meta.env.DEV) {
+        console.error("Failed to load ideas:", error);
+      }
+      return;
+    }
+
+    if (data) {
+      const formattedIdeas: Idea[] = data.map((idea) => ({
+        id: idea.id,
+        text: idea.text,
+        timestamp: new Date(idea.created_at).getTime(),
+        category: idea.category || undefined,
+      }));
+      setIdeas(formattedIdeas);
+    }
+  };
+
+  // Load gamification data from database
+  const loadGamification = async (userId: string) => {
+    const { data, error } = await supabase
+      .from("gamification")
+      .select("*")
+      .eq("user_id", userId)
+      .single();
+
+    if (error) {
+      // If no gamification record exists, create one
+      if (error.code === "PGRST116") {
+        const { error: insertError } = await supabase
+          .from("gamification")
+          .insert({
+            user_id: userId,
+            points: 0,
+            streak: 0,
+            last_idea_date: null,
+          });
+
+        if (insertError && import.meta.env.DEV) {
+          console.error("Failed to create gamification record:", insertError);
+        }
+      } else if (import.meta.env.DEV) {
+        console.error("Failed to load gamification:", error);
+      }
+      return;
+    }
+
+    if (data) {
+      setGamification({
+        points: data.points,
+        streak: data.streak,
+        lastIdeaDate: data.last_idea_date,
+      });
+    }
+  };
+
   // Auth and data loading
   useEffect(() => {
     // Set up auth state listener
@@ -56,6 +121,13 @@ const IdeaBoard = () => {
         setSession(session);
         if (!session) {
           navigate("/auth");
+        } else {
+          // Load data when session is established
+          setTimeout(() => {
+            loadIdeas(session.user.id);
+            loadGamification(session.user.id);
+            setIsLoading(false);
+          }, 0);
         }
       }
     );
@@ -65,39 +137,15 @@ const IdeaBoard = () => {
       setSession(session);
       if (!session) {
         navigate("/auth");
+      } else {
+        loadIdeas(session.user.id);
+        loadGamification(session.user.id);
+        setIsLoading(false);
       }
     });
 
-    const storedIdeas = localStorage.getItem("ideas");
-    if (storedIdeas) {
-      try {
-        setIdeas(JSON.parse(storedIdeas));
-      } catch (error) {
-        console.error("Failed to parse stored ideas:", error);
-      }
-    }
-
-    const storedGamification = localStorage.getItem("gamification");
-    if (storedGamification) {
-      try {
-        setGamification(JSON.parse(storedGamification));
-      } catch (error) {
-        console.error("Failed to parse stored gamification:", error);
-      }
-    }
-
     return () => subscription.unsubscribe();
   }, [navigate]);
-
-  // Save ideas to localStorage whenever they change
-  useEffect(() => {
-    localStorage.setItem("ideas", JSON.stringify(ideas));
-  }, [ideas]);
-
-  // Save gamification data to localStorage whenever it changes
-  useEffect(() => {
-    localStorage.setItem("gamification", JSON.stringify(gamification));
-  }, [gamification]);
 
   const calculateLevel = (points: number) => {
     return Math.floor(points / 100) + 1;
@@ -125,9 +173,11 @@ const IdeaBoard = () => {
     }
   };
 
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     
+    if (!session) return;
+
     const trimmedValue = inputValue.trim();
     if (!trimmedValue) {
       toast({
@@ -147,11 +197,32 @@ const IdeaBoard = () => {
       return;
     }
 
+    // Insert idea into database
+    const { data: newIdeaData, error: ideaError } = await supabase
+      .from("ideas")
+      .insert({
+        user_id: session.user.id,
+        text: trimmedValue,
+        category: selectedCategory !== "all" ? selectedCategory : null,
+      })
+      .select()
+      .single();
+
+    if (ideaError) {
+      toast({
+        title: "Error",
+        description: "Failed to save idea. Please try again.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Add to local state
     const newIdea: Idea = {
-      id: Date.now().toString(),
-      text: trimmedValue,
-      timestamp: Date.now(),
-      category: selectedCategory !== "all" ? selectedCategory : undefined,
+      id: newIdeaData.id,
+      text: newIdeaData.text,
+      timestamp: new Date(newIdeaData.created_at).getTime(),
+      category: newIdeaData.category || undefined,
     };
 
     setIdeas([newIdea, ...ideas]);
@@ -163,11 +234,27 @@ const IdeaBoard = () => {
     const newLevel = calculateLevel(newPoints);
     const oldLevel = calculateLevel(gamification.points);
 
-    setGamification({
+    const newGamification = {
       points: newPoints,
       streak: streakData.streak,
       lastIdeaDate: streakData.lastIdeaDate,
-    });
+    };
+
+    setGamification(newGamification);
+
+    // Update gamification in database
+    const { error: gamificationError } = await supabase
+      .from("gamification")
+      .update({
+        points: newPoints,
+        streak: streakData.streak,
+        last_idea_date: streakData.lastIdeaDate,
+      })
+      .eq("user_id", session.user.id);
+
+    if (gamificationError && import.meta.env.DEV) {
+      console.error("Failed to update gamification:", gamificationError);
+    }
 
     let toastMessage = "Your brilliant thought has been saved. +10 points!";
     if (newLevel > oldLevel) {
@@ -183,7 +270,25 @@ const IdeaBoard = () => {
     });
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
+    if (!session) return;
+
+    // Delete from database
+    const { error } = await supabase
+      .from("ideas")
+      .delete()
+      .eq("id", id)
+      .eq("user_id", session.user.id);
+
+    if (error) {
+      toast({
+        title: "Error",
+        description: "Failed to delete idea. Please try again.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIdeas(ideas.filter((idea) => idea.id !== id));
     toast({
       title: "Idea removed",
@@ -191,7 +296,25 @@ const IdeaBoard = () => {
     });
   };
 
-  const handleEdit = (id: string, newText: string) => {
+  const handleEdit = async (id: string, newText: string) => {
+    if (!session) return;
+
+    // Update in database
+    const { error } = await supabase
+      .from("ideas")
+      .update({ text: newText })
+      .eq("id", id)
+      .eq("user_id", session.user.id);
+
+    if (error) {
+      toast({
+        title: "Error",
+        description: "Failed to update idea. Please try again.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIdeas(ideas.map((idea) => 
       idea.id === id ? { ...idea, text: newText } : idea
     ));
@@ -207,7 +330,7 @@ const IdeaBoard = () => {
     return matchesSearch && matchesCategory;
   });
 
-  if (!session) {
+  if (!session || isLoading) {
     return null;
   }
 
