@@ -214,14 +214,19 @@ const IdeaBoard = () => {
   return (
     <div className="min-h-screen bg-gradient-background py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-4xl mx-auto">
-        {/* Header */}
-        <div className="text-center mb-12 animate-scale-in">
-          <div className="absolute top-4 right-4 flex items-center gap-2">
+        {/* Header with Controls */}
+        <div className="flex items-start justify-between mb-8 animate-fade-in">
+          <div className="flex-1" />
+          <div className="flex items-center gap-2">
             <ThemeToggle />
             <Button variant="ghost" size="icon" onClick={() => navigate("/profile")}>
               <User className="w-5 h-5" />
             </Button>
           </div>
+        </div>
+
+        {/* Title Section */}
+        <div className="text-center mb-12 animate-scale-in">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-primary mb-6 shadow-button">
             <Lightbulb className="h-8 w-8 text-primary-foreground" />
           </div>
